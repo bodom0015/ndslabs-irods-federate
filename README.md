@@ -24,7 +24,7 @@ To build for multiple architectures
 
 # Running
 
-``
+```
 ./ndslabs-irods-federate --host localhost --port 8080 --password admin --zone tempZone
 ```
 
