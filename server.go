@@ -158,7 +158,7 @@ func PostFederation(w rest.ResponseWriter, r *rest.Request) {
 		}
 
 		// Add the zone directory
-		zoneDir := fmt.Sprintf("/%s/%s", zone, zoneName)
+		zoneDir := fmt.Sprintf("/%s/home/%s", zone, user)
 		fmt.Printf("Creating collection %s\n", zoneDir)
 		mkdir := exec.Command("imkdir", zoneDir)
 		err = mkdir.Run()
@@ -168,8 +168,28 @@ func PostFederation(w rest.ResponseWriter, r *rest.Request) {
 			return
 		}
 
-		// Add the remote user
+		// Add the remote users
 		zoneUser := fmt.Sprintf("%s#%s", user, zoneName)
+		fmt.Printf("Creating remote user %s\n", zoneUser)
+		mkuser := exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
+		err = mkuser.Run()
+		if err != nil {
+			fmt.Errorf("Error in mkuser: %s\n", err)
+			rest.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Grant permissions to remote user
+		fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
+		ichmod := exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
+		err = ichmod.Run()
+		if err != nil {
+			fmt.Errorf("Error in ichmod: %s\n", err)
+			rest.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		zoneUser := fmt.Sprintf("rods#%s", zoneName)
 		fmt.Printf("Creating remote user %s\n", zoneUser)
 		mkuser := exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
 		err = mkuser.Run()
