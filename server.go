@@ -201,7 +201,7 @@ func PostFederation(w rest.ResponseWriter, r *rest.Request) {
 
 		// Grant permissions to remote user
 		fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
-		ichmod := exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
+		ichmod = exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
 		err = ichmod.Run()
 		if err != nil {
 			fmt.Errorf("Error in ichmod: %s\n", err)
