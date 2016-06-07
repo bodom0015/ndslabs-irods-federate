@@ -102,112 +102,117 @@ func PostFederation(w rest.ResponseWriter, r *rest.Request) {
 	federations := config["federation"]
 	for _, federation := range federations.([]interface{}) {
 		icatHost := (federation.(map[string]interface{})["icat_host"]).(string)
-		if icatHost == fed.IcatHost {
+		zoneName := (federation.(map[string]interface{})["zone_name"]).(string)
+		fmt.Printf("%s %s %s %s\n", icatHost, fed.IcatHost, zoneName, fed.ZoneName)
+		if icatHost == fed.IcatHost || zoneName == fed.ZoneName {
 			federation.(map[string]interface{})["zone_key"] = fed.ZoneKey
 			federation.(map[string]interface{})["zone_name"] = fed.ZoneName
+			federation.(map[string]interface{})["icat_host"] = fed.IcatHost
 			federation.(map[string]interface{})["negotiation_key"] = fed.NegotiationKey
 			update = true
 		}
 	}
 
 	if !update {
+		fmt.Printf("Adding federation entry for %s %s\n", fed.IcatHost, fed.ZoneName)
 		federations = append(federations.([]interface{}), fed)
-		config["federation"] = federations
-		data, err = json.MarshalIndent(config, "", "   ")
-		if err != nil {
-			fmt.Errorf("Error marshaling server config: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		err = ioutil.WriteFile("/etc/irods/server_config.json", data, 0700)
-		if err != nil {
-			fmt.Errorf("Error writing server config: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	} else {
+		fmt.Printf("Updating federation entry for %s %s\n", fed.IcatHost, fed.ZoneName)
+	}
+	config["federation"] = federations
+	data, err = json.MarshalIndent(config, "", "   ")
+	if err != nil {
+		fmt.Errorf("Error marshaling server config: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = ioutil.WriteFile("/etc/irods/server_config.json", data, 0700)
+	if err != nil {
+		fmt.Errorf("Error writing server config: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		user := req.User
-		icatAddress := req.IcatAddress
-		icatHost := fed.IcatHost
-		zoneName := fed.ZoneName
+	user := req.User
+	icatAddress := req.IcatAddress
+	icatHost := fed.IcatHost
+	zoneName := fed.ZoneName
+	fmt.Printf("Updating /etc/hosts %s %s\n", icatAddress, icatHost)
+	f, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		fmt.Errorf("Error opening hosts: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		fmt.Printf("Updating /etc/hosts %s %s\n", icatAddress, icatHost)
-		f, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_WRONLY, 0600)
-		if err != nil {
-			fmt.Errorf("Error opening hosts: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	defer f.Close()
 
-		defer f.Close()
+	if _, err = f.WriteString(fmt.Sprintf("%s\t%s\n", icatAddress, icatHost)); err != nil {
+		fmt.Errorf("Error updating hosts: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		if _, err = f.WriteString(fmt.Sprintf("%s\t%s\n", icatAddress, icatHost)); err != nil {
-			fmt.Errorf("Error updating hosts: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Create the remote zone
+	fmt.Printf("Creating zone %s %s:1247\n", zoneName, icatAddress)
+	mkzone := exec.Command("iadmin", "mkzone", zoneName, "remote", fmt.Sprintf("%s:1247", icatAddress))
+	err = mkzone.Run()
+	if err != nil {
+		fmt.Errorf("Error in mkzone: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Create the remote zone
-		fmt.Printf("Creating zone %s %s:1247\n", zoneName, icatAddress)
-		mkzone := exec.Command("iadmin", "mkzone", zoneName, "remote", fmt.Sprintf("%s:1247", icatAddress))
-		err = mkzone.Run()
-		if err != nil {
-			fmt.Errorf("Error in mkzone: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Add the zone directory
+	zoneDir := fmt.Sprintf("/%s/home/%s", zone, user)
+	fmt.Printf("Creating collection %s\n", zoneDir)
+	mkdir := exec.Command("imkdir", zoneDir)
+	err = mkdir.Run()
+	if err != nil {
+		fmt.Errorf("Error in imkdir: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Add the zone directory
-		zoneDir := fmt.Sprintf("/%s/home/%s", zone, user)
-		fmt.Printf("Creating collection %s\n", zoneDir)
-		mkdir := exec.Command("imkdir", zoneDir)
-		err = mkdir.Run()
-		if err != nil {
-			fmt.Errorf("Error in imkdir: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Add the remote users
+	zoneUser := fmt.Sprintf("%s#%s", user, zoneName)
+	fmt.Printf("Creating remote user %s\n", zoneUser)
+	mkuser := exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
+	err = mkuser.Run()
+	if err != nil {
+		fmt.Errorf("Error in mkuser: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Add the remote users
-		zoneUser := fmt.Sprintf("%s#%s", user, zoneName)
-		fmt.Printf("Creating remote user %s\n", zoneUser)
-		mkuser := exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
-		err = mkuser.Run()
-		if err != nil {
-			fmt.Errorf("Error in mkuser: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Grant permissions to remote user
+	fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
+	ichmod := exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
+	err = ichmod.Run()
+	if err != nil {
+		fmt.Errorf("Error in ichmod: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Grant permissions to remote user
-		fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
-		ichmod := exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
-		err = ichmod.Run()
-		if err != nil {
-			fmt.Errorf("Error in ichmod: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	zoneUser = fmt.Sprintf("rods#%s", zoneName)
+	fmt.Printf("Creating remote user %s\n", zoneUser)
+	mkuser = exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
+	err = mkuser.Run()
+	if err != nil {
+		fmt.Errorf("Error in mkuser: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		zoneUser := fmt.Sprintf("rods#%s", zoneName)
-		fmt.Printf("Creating remote user %s\n", zoneUser)
-		mkuser := exec.Command("iadmin", "mkuser", zoneUser, "rodsuser")
-		err = mkuser.Run()
-		if err != nil {
-			fmt.Errorf("Error in mkuser: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Grant permissions to remote user
-		fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
-		ichmod = exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
-		err = ichmod.Run()
-		if err != nil {
-			fmt.Errorf("Error in ichmod: %s\n", err)
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Grant permissions to remote user
+	fmt.Printf("Granting write permissions on %s to %s\n", zoneDir, zoneUser)
+	ichmod = exec.Command("ichmod", "-r", "write", zoneUser, zoneDir)
+	err = ichmod.Run()
+	if err != nil {
+		fmt.Errorf("Error in ichmod: %s\n", err)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
