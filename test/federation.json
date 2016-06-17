@@ -1,0 +1,10 @@
+{
+   "user":"dataverse",
+   "icat_address":"172.16.4.6",
+   "federation" : {
+        "icat_host":"samdaq-dvicat-1",
+        "zone_name":"zone1",
+        "negotiation_key":"ZZ6A1PPHzeHST1azY73dtkDe70mJVAWa",
+        "zone_key":"eSc99JIAem_rAHFo"
+   }
+}
